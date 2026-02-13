@@ -33,6 +33,17 @@ except Exception as e:
     st.error(f"Import failed: {e}")
     st.stop()
 
+# CRITICAL: Feature columns must EXACTLY match model training
+# These are from model_prep.py FEATURE_COLUMNS
+FEATURE_COLUMNS = [
+    "Engine rpm",
+    "Lub oil pressure",
+    "Fuel pressure",
+    "Coolant pressure",
+    "lub oil temp",
+    "Coolant temp"
+]
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -113,6 +124,11 @@ def load_model():
         print("Loading model into memory...", file=sys.stderr)
         model = joblib.load(model_path)
         print("✓ Model loaded successfully", file=sys.stderr)
+        
+        # Verify model features
+        if hasattr(model, 'feature_names_in_'):
+            print(f"Model expects features: {model.feature_names_in_}", file=sys.stderr)
+        
         print("=" * 70 + "\n", file=sys.stderr)
         
         return model, None
@@ -272,18 +288,20 @@ def main():
     st.markdown("---")
     
     if st.button("🔍 Predict Engine Condition", use_container_width=True, type="primary"):
-        # Prepare input data
+        # CRITICAL FIX: Use exact column names that match model training
         input_df = pd.DataFrame([{
-            "Engine rpm": engine_rpm,
-            "Lub oil pressure": lub_oil_pressure,
-            "Fuel pressure": fuel_pressure,
-            "Coolant pressure": coolant_pressure,
-            "lub oil temp": lub_oil_temp,
-            "Coolant temp": coolant_temp
+            "Engine rpm": engine_rpm,                    # Lowercase 'rpm'
+            "Lub oil pressure": lub_oil_pressure,        # Lowercase 'oil'
+            "Fuel pressure": fuel_pressure,              # Lowercase 'pressure'
+            "Coolant pressure": coolant_pressure,        # Lowercase 'pressure'
+            "lub oil temp": lub_oil_temp,                # All lowercase
+            "Coolant temp": coolant_temp                 # Lowercase 'temp'
         }])
 
         try:
             print(f"Making prediction with input: {input_df.to_dict()}", file=sys.stderr)
+            print(f"Input columns: {input_df.columns.tolist()}", file=sys.stderr)
+            print(f"Expected columns: {FEATURE_COLUMNS}", file=sys.stderr)
             
             # Make prediction
             prediction = model.predict(input_df)[0]
