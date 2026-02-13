@@ -1,8 +1,13 @@
-# Use Python 3.10 slim for smaller image size
-FROM python:3.10-slim
+# Use Python 
+FROM python:3.12
 
 # Set working directory
 WORKDIR /app
+
+# Install curl for healthcheck (slim images don't include it)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install dependencies first (better caching)
 COPY requirements.txt .
