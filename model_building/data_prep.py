@@ -227,9 +227,9 @@ def save_datasets_locally(train_df, test_df):
     return train_path, test_path
 
 
-def upload_to_huggingface(train_path, test_path, hf_token):
+def upload_to_huggingface(train_path, test_path, hf_token, upload_flag):
     """Upload datasets to Hugging Face"""
-    if not UPLOAD_TO_HF:
+    if not upload_flag:
         print("=" * 70)
         print("SKIPPING UPLOAD TO HUGGING FACE")
         print("=" * 70)
@@ -283,6 +283,9 @@ def cleanup_new_data_file(hf_token):
 
 def main():
     """Main execution pipeline"""
+    # CRITICAL FIX: Declare global at the very start of function
+    global UPLOAD_TO_HF
+    
     print("\n" + "=" * 70)
     print("DATA PREPARATION PIPELINE")
     print("=" * 70)
@@ -293,6 +296,9 @@ def main():
     
     # Authenticate
     hf_token = authenticate_hf()
+    
+    # Track if we should upload (use local variable to avoid global issues)
+    should_upload = UPLOAD_TO_HF
     
     # Check workflow mode
     if USE_PRESPLIT_DATA and not MERGE_NEW_DATA:
@@ -329,9 +335,8 @@ def main():
                 train_df, test_df = split_data(merged_df)
                 
                 # Auto-enable upload since we have new data
-                global UPLOAD_TO_HF
-                UPLOAD_TO_HF = True
-                print("ℹ  Auto-enabled UPLOAD_TO_HF due to new data merge\n")
+                should_upload = True
+                print("ℹ  Auto-enabled upload due to new data merge\n")
             else:
                 print("⚠ Could not load new data, using existing dataset\n")
                 train_df, test_df = split_data(existing_df)
@@ -345,10 +350,10 @@ def main():
     train_path, test_path = save_datasets_locally(train_df, test_df)
     
     # Upload to HF (if needed)
-    upload_to_huggingface(train_path, test_path, hf_token)
+    upload_to_huggingface(train_path, test_path, hf_token, should_upload)
     
     # Cleanup new data file if merge was successful
-    if MERGE_NEW_DATA and UPLOAD_TO_HF:
+    if MERGE_NEW_DATA and should_upload:
         cleanup_new_data_file(hf_token)
     
     print("=" * 70)
@@ -359,7 +364,7 @@ def main():
     print("\nSUMMARY:")
     print(f"  Final train size: {len(train_df)}")
     print(f"  Final test size: {len(test_df)}")
-    print(f"  Data uploaded to HF: {UPLOAD_TO_HF}")
+    print(f"  Data uploaded to HF: {should_upload}")
     print("=" * 70 + "\n")
 
 
