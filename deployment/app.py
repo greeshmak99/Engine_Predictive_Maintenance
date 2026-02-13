@@ -274,12 +274,12 @@ def main():
     if st.button("🔍 Predict Engine Condition", use_container_width=True, type="primary"):
         # Prepare input data
         input_df = pd.DataFrame([{
-            "Engine RPM": engine_rpm,
-            "Lub Oil Pressure": lub_oil_pressure,
-            "Fuel Pressure": fuel_pressure,
-            "Coolant Pressure": coolant_pressure,
-            "Lub Oil Temperature": lub_oil_temp,
-            "Coolant Temperature": coolant_temp
+            "Engine rpm": engine_rpm,
+            "Lub oil pressure": lub_oil_pressure,
+            "Fuel pressure": fuel_pressure,
+            "Coolant pressure": coolant_pressure,
+            "lub oil temp": lub_oil_temp,
+            "Coolant temp": coolant_temp
         }])
 
         try:

@@ -17,22 +17,24 @@ from huggingface_hub import HfApi, login, hf_hub_download
 # Configuration
 DATA_PATH = "data"
 TARGET_COLUMN = "Engine Condition"
-MODEL_FILENAME = "xgb_tuned_model.joblib"  
+MODEL_FILENAME = "xgb_tuned_model.joblib"
 HF_MODEL_REPO = "Quantum9999/xgb-predictive-maintenance"
 
+# FIXED: Match actual dataset column names
 FEATURE_COLUMNS = [
-    "Engine RPM",
-    "Lub Oil Pressure",
-    "Fuel Pressure",
-    "Coolant Pressure",
-    "Lub Oil Temperature",
-    "Coolant Temperature"
+    "Engine rpm",
+    "Lub oil pressure",
+    "Fuel pressure",
+    "Coolant pressure",
+    "lub oil temp",
+    "Coolant temp"
 ]
 
 # Control flags
 TRAIN_NEW_MODEL = os.environ.get("TRAIN_NEW_MODEL", "true").lower() == "true"
 UPLOAD_MODEL_TO_HF = os.environ.get("UPLOAD_MODEL_TO_HF", "false").lower() == "true"
 COMPARE_WITH_EXISTING = os.environ.get("COMPARE_WITH_EXISTING", "true").lower() == "true"
+DATA_WAS_UPDATED = os.environ.get("DATA_WAS_UPDATED", "false").lower() == "true"
 
 
 def authenticate_hf():
@@ -50,6 +52,24 @@ def authenticate_hf():
     return hf_token
 
 
+def adjust_workflow_for_data_update():
+    """Automatically adjust flags if data was updated"""
+    global UPLOAD_MODEL_TO_HF, COMPARE_WITH_EXISTING
+    
+    if DATA_WAS_UPDATED:
+        print("=" * 70)
+        print("DATA UPDATE DETECTED - ADJUSTING WORKFLOW")
+        print("=" * 70)
+        print("ℹ  New data detected, automatically adjusting pipeline:")
+        print("  - TRAIN_NEW_MODEL: true (training on new data)")
+        print("  - UPLOAD_MODEL_TO_HF: true (new model needed)")
+        print("  - COMPARE_WITH_EXISTING: false (different datasets)")
+        print("=" * 70 + "\n")
+        
+        UPLOAD_MODEL_TO_HF = True
+        COMPARE_WITH_EXISTING = False
+
+
 def load_prepared_data():
     """Load train and test datasets"""
     print("=" * 70)
@@ -61,7 +81,8 @@ def load_prepared_data():
     
     print(f"✓ Data loaded successfully")
     print(f"  Train shape: {train_df.shape}")
-    print(f"  Test shape: {test_df.shape}\n")
+    print(f"  Test shape: {test_df.shape}")
+    print(f"\n  Actual columns: {train_df.columns.tolist()}\n")
     
     return train_df, test_df
 
@@ -71,6 +92,12 @@ def prepare_features(train_df, test_df):
     print("=" * 70)
     print("STEP 2: PREPARING FEATURES")
     print("=" * 70)
+    
+    missing_cols = [col for col in FEATURE_COLUMNS if col not in train_df.columns]
+    if missing_cols:
+        print(f"✗ ERROR: Missing columns: {missing_cols}")
+        print(f"Available: {train_df.columns.tolist()}")
+        raise KeyError(f"Missing columns: {missing_cols}")
     
     X_train = train_df[FEATURE_COLUMNS]
     y_train = train_df[TARGET_COLUMN]
@@ -157,11 +184,9 @@ def evaluate_model(model, X_test, y_test, model_name="Model"):
     print(f"EVALUATING: {model_name}")
     print("-" * 70)
     
-    # Predictions
     y_pred = model.predict(X_test)
     y_pred_proba = model.predict_proba(X_test)[:, 1]
     
-    # Calculate metrics
     metrics = {
         'accuracy': accuracy_score(y_test, y_pred),
         'precision': precision_score(y_test, y_pred),
@@ -198,16 +223,14 @@ def compare_models(existing_metrics, new_metrics):
         
         print(f"{metric:<15} {existing_val:<12.4f} {new_val:<12.4f} {diff:+.4f} {symbol}")
         
-        if diff > 0.001:  # Meaningful improvement threshold
+        if diff > 0.001:
             improved = True
     
     print("\n" + "=" * 70)
     if improved:
         print("✓ NEW MODEL SHOWS IMPROVEMENT")
-        print("  Recommendation: Upload new model")
     else:
         print("ℹ  NEW MODEL SIMILAR TO EXISTING")
-        print("  Recommendation: Use existing model")
     print("=" * 70 + "\n")
     
     return improved
@@ -253,9 +276,7 @@ def upload_model_to_hf(model_path, hf_token):
             token=hf_token
         )
         print(f"✓ Model uploaded successfully")
-        print(f"  Repository: {HF_MODEL_REPO}")
-        print(f"  File: {MODEL_FILENAME}")
-        print(f"  ⚠️  This REPLACES the existing model\n")
+        print(f"  Repository: {HF_MODEL_REPO}\n")
     except Exception as e:
         print(f"⚠ Upload error: {e}\n")
 
@@ -268,18 +289,15 @@ def main():
     print(f"Train new model: {TRAIN_NEW_MODEL}")
     print(f"Upload to HF: {UPLOAD_MODEL_TO_HF}")
     print(f"Compare with existing: {COMPARE_WITH_EXISTING}")
+    print(f"Data was updated: {DATA_WAS_UPDATED}")
     print("=" * 70 + "\n")
     
-    # Authenticate
+    adjust_workflow_for_data_update()
+    
     hf_token = authenticate_hf()
-    
-    # Load data
     train_df, test_df = load_prepared_data()
-    
-    # Prepare features
     X_train, X_test, y_train, y_test = prepare_features(train_df, test_df)
     
-    # Load existing model (if available)
     existing_model = None
     existing_metrics = None
     
@@ -291,7 +309,6 @@ def main():
                 model_name="Existing Model (from HF)"
             )
     
-    # Train new model (or use existing)
     if TRAIN_NEW_MODEL:
         print("=" * 70)
         print("STEP 3: TRAINING NEW MODEL")
@@ -299,26 +316,15 @@ def main():
         new_model = train_xgboost_model(X_train, y_train)
         new_metrics = evaluate_model(new_model, X_test, y_test, model_name="Newly Trained Model")
         
-        # Compare if both exist
-        if existing_metrics and new_metrics:
-            improved = compare_models(existing_metrics, new_metrics)
-            if improved:
-                print("📊 Recommendation: Upload the new model (shows improvement)\n")
+        if existing_metrics and new_metrics and COMPARE_WITH_EXISTING:
+            compare_models(existing_metrics, new_metrics)
         
         model_to_save = new_model
     else:
-        print("=" * 70)
-        print("USING EXISTING MODEL (No training)")
-        print("=" * 70)
-        print("ℹ  Set TRAIN_NEW_MODEL=true to train a new model\n")
         model_to_save = existing_model
-        new_metrics = existing_metrics
     
-    # Save locally
     if model_to_save:
         model_path = save_model_locally(model_to_save)
-        
-        # Upload to HF (conditional)
         upload_model_to_hf(model_path, hf_token)
     
     print("=" * 70)
