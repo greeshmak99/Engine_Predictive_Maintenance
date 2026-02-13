@@ -1,6 +1,5 @@
 """
 Streamlit Application for Engine Predictive Maintenance
-With detailed logging for debugging
 """
 
 import streamlit as st
@@ -34,7 +33,6 @@ except Exception as e:
     st.stop()
 
 # CRITICAL: Feature columns must EXACTLY match model training
-# These are from model_prep.py FEATURE_COLUMNS
 FEATURE_COLUMNS = [
     "Engine rpm",
     "Lub oil pressure",
@@ -90,56 +88,69 @@ st.markdown("""
 
 @st.cache_resource
 def load_model():
-    """Load model from Hugging Face with detailed logging"""
+    """Load model from Hugging Face with detailed logging and retries"""
     
     print("\n" + "=" * 70, file=sys.stderr)
     print("LOADING MODEL FROM HUGGING FACE", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     
-    try:
-        # Check for token
-        hf_token = os.environ.get("HF_TOKEN")
-        print(f"HF_TOKEN found: {hf_token is not None}", file=sys.stderr)
-        
-        if hf_token:
-            print("Authenticating with Hugging Face...", file=sys.stderr)
-            login(token=hf_token)
-            print("✓ Authentication successful", file=sys.stderr)
-        else:
-            print("⚠ No HF_TOKEN - attempting public access", file=sys.stderr)
-        
-        # Download model
-        print("\nDownloading model...", file=sys.stderr)
-        print("  Repo: Quantum9999/xgb-predictive-maintenance", file=sys.stderr)
-        print("  File: xgb_tuned_model.joblib", file=sys.stderr)
-        
-        model_path = hf_hub_download(
-            repo_id="Quantum9999/xgb-predictive-maintenance",
-            filename="xgb_tuned_model.joblib",
-            token=hf_token
-        )
-        print(f"✓ Model downloaded: {model_path}", file=sys.stderr)
-        
-        # Load model
-        print("Loading model into memory...", file=sys.stderr)
-        model = joblib.load(model_path)
-        print("✓ Model loaded successfully", file=sys.stderr)
-        
-        # Verify model features
-        if hasattr(model, 'feature_names_in_'):
-            print(f"Model expects features: {model.feature_names_in_}", file=sys.stderr)
-        
-        print("=" * 70 + "\n", file=sys.stderr)
-        
-        return model, None
-        
-    except Exception as e:
-        error_msg = f"Model loading failed: {str(e)}"
-        print(f"✗ {error_msg}", file=sys.stderr)
-        import traceback
-        print(f"Traceback:\n{traceback.format_exc()}", file=sys.stderr)
-        print("=" * 70 + "\n", file=sys.stderr)
-        return None, error_msg
+    max_retries = 3
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # CORRECT: Use HF_TOKEN (as configured in your HF Space secrets)
+            hf_token = os.environ.get("HF_TOKEN")
+            print(f"HF_TOKEN found: {hf_token is not None}", file=sys.stderr)
+            
+            if hf_token:
+                print("Authenticating with Hugging Face...", file=sys.stderr)
+                login(token=hf_token)
+                print("✓ Authentication successful", file=sys.stderr)
+            else:
+                print("⚠ No HF_TOKEN - attempting public access", file=sys.stderr)
+            
+            # Download model
+            print("\nDownloading model...", file=sys.stderr)
+            print("  Repo: Quantum9999/xgb-predictive-maintenance", file=sys.stderr)
+            print("  File: xgb_tuned_model.joblib", file=sys.stderr)
+            
+            model_path = hf_hub_download(
+                repo_id="Quantum9999/xgb-predictive-maintenance",
+                filename="xgb_tuned_model.joblib",
+                token=hf_token,
+                cache_dir="/tmp/hf_cache"  # Use tmp for faster access
+            )
+            print(f"✓ Model downloaded: {model_path}", file=sys.stderr)
+            
+            # Load model
+            print("Loading model into memory...", file=sys.stderr)
+            model = joblib.load(model_path)
+            print("✓ Model loaded successfully", file=sys.stderr)
+            
+            # Verify model features
+            if hasattr(model, 'feature_names_in_'):
+                print(f"Model expects features: {model.feature_names_in_}", file=sys.stderr)
+            
+            print("=" * 70 + "\n", file=sys.stderr)
+            
+            return model, None
+            
+        except Exception as e:
+            retry_count += 1
+            error_msg = f"Model loading attempt {retry_count}/{max_retries} failed: {str(e)}"
+            print(f"✗ {error_msg}", file=sys.stderr)
+            
+            if retry_count < max_retries:
+                import time
+                wait_time = 2 * retry_count
+                print(f"Retrying in {wait_time} seconds...", file=sys.stderr)
+                time.sleep(wait_time)
+            else:
+                import traceback
+                print(f"Final traceback:\n{traceback.format_exc()}", file=sys.stderr)
+                print("=" * 70 + "\n", file=sys.stderr)
+                return None, error_msg
 
 
 def main():
@@ -157,8 +168,9 @@ def main():
         unsafe_allow_html=True
     )
 
-    # Load model
-    model, error = load_model()
+    # Load model with progress indicator
+    with st.spinner("Loading AI model... This may take a moment."):
+        model, error = load_model()
     
     if model is None:
         st.error(f"❌ Failed to load prediction model")
@@ -175,6 +187,16 @@ def main():
             st.write(f"- HF_TOKEN set: {os.environ.get('HF_TOKEN') is not None}")
             st.write("- Expected repo: Quantum9999/xgb-predictive-maintenance")
             st.write("- Expected file: xgb_tuned_model.joblib")
+            
+            st.write("\n**Your Setup (from screenshots):**")
+            st.write("✅ HF Space has HF_TOKEN secret (Image 1)")
+            st.write("✅ GitHub has HF_EN_TOKEN secret (Image 2)")
+            st.write("✅ GitHub token for pushing code (Image 3)")
+            
+            st.write("\n**Next Steps:**")
+            st.write("1. Verify HF_TOKEN secret exists in Space settings")
+            st.write("2. Check Space logs for detailed error messages")
+            st.write("3. Ensure model repo is accessible")
         
         st.stop()
     
@@ -288,20 +310,18 @@ def main():
     st.markdown("---")
     
     if st.button("🔍 Predict Engine Condition", use_container_width=True, type="primary"):
-        # CRITICAL FIX: Use exact column names that match model training
+        # Create input DataFrame with exact column names
         input_df = pd.DataFrame([{
-            "Engine rpm": engine_rpm,                    # Lowercase 'rpm'
-            "Lub oil pressure": lub_oil_pressure,        # Lowercase 'oil'
-            "Fuel pressure": fuel_pressure,              # Lowercase 'pressure'
-            "Coolant pressure": coolant_pressure,        # Lowercase 'pressure'
-            "lub oil temp": lub_oil_temp,                # All lowercase
-            "Coolant temp": coolant_temp                 # Lowercase 'temp'
+            "Engine rpm": engine_rpm,
+            "Lub oil pressure": lub_oil_pressure,
+            "Fuel pressure": fuel_pressure,
+            "Coolant pressure": coolant_pressure,
+            "lub oil temp": lub_oil_temp,
+            "Coolant temp": coolant_temp
         }])
 
         try:
             print(f"Making prediction with input: {input_df.to_dict()}", file=sys.stderr)
-            print(f"Input columns: {input_df.columns.tolist()}", file=sys.stderr)
-            print(f"Expected columns: {FEATURE_COLUMNS}", file=sys.stderr)
             
             # Make prediction
             prediction = model.predict(input_df)[0]
