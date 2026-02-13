@@ -1,5 +1,6 @@
 """
 Streamlit Application for Engine Predictive Maintenance
+Production Version
 """
 
 import streamlit as st
@@ -99,8 +100,11 @@ def load_model():
     
     while retry_count < max_retries:
         try:
-            # CORRECT: Use HF_TOKEN (as configured in your HF Space secrets)
+            # Get HF_TOKEN and clean it
             hf_token = os.environ.get("HF_TOKEN")
+            if hf_token:
+                hf_token = hf_token.strip()  # Remove any newlines or whitespace
+            
             print(f"HF_TOKEN found: {hf_token is not None}", file=sys.stderr)
             
             if hf_token:
@@ -119,7 +123,7 @@ def load_model():
                 repo_id="Quantum9999/xgb-predictive-maintenance",
                 filename="xgb_tuned_model.joblib",
                 token=hf_token,
-                cache_dir="/tmp/hf_cache"  # Use tmp for faster access
+                cache_dir="/tmp/hf_cache"
             )
             print(f"✓ Model downloaded: {model_path}", file=sys.stderr)
             
@@ -187,16 +191,6 @@ def main():
             st.write(f"- HF_TOKEN set: {os.environ.get('HF_TOKEN') is not None}")
             st.write("- Expected repo: Quantum9999/xgb-predictive-maintenance")
             st.write("- Expected file: xgb_tuned_model.joblib")
-            
-            st.write("\n**Your Setup (from screenshots):**")
-            st.write("✅ HF Space has HF_TOKEN secret (Image 1)")
-            st.write("✅ GitHub has HF_EN_TOKEN secret (Image 2)")
-            st.write("✅ GitHub token for pushing code (Image 3)")
-            
-            st.write("\n**Next Steps:**")
-            st.write("1. Verify HF_TOKEN secret exists in Space settings")
-            st.write("2. Check Space logs for detailed error messages")
-            st.write("3. Ensure model repo is accessible")
         
         st.stop()
     
